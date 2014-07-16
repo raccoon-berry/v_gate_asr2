@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/SampleTypeD/SampleTypeD.iml" filepath="$PROJECT_DIR$/SampleTypeD/SampleTypeD.iml" />
+      <module fileurl="file://$PROJECT_DIR$/v_gate_asr2.iml" filepath="$PROJECT_DIR$/v_gate_asr2.iml" />
+    </modules>
+  </component>
+</project>
+

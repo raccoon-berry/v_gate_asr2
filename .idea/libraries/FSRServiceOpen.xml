@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="FSRServiceOpen">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/SampleTypeD/jar/FSRServiceOpen.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
