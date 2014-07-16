@@ -23,6 +23,11 @@ class SyncObj{
     boolean isDone=false;
     boolean isShutdown=false;
 
+    synchronized void initialize() {
+        isDone=false;
+        isShutdown=false;
+    }
+
     synchronized String wait_(){
         try {
             // wait_()より前にnotify_()が呼ばれた場合の対策としてisDoneフラグをチェックしている
@@ -58,7 +63,7 @@ public class MainActivity extends Activity{
     private ProgressBar progressLevel_;
     private TextView textResult_;
     private fsrController controller_ = new fsrController();
-
+    private String[] yummies = {"美味","うま","うめ","おいし","旨","最高"};
 
     // BackendTypeはBackendType.D固定
     private static final BackendType backendType_ = BackendType.D;
@@ -83,16 +88,27 @@ public class MainActivity extends Activity{
         // (UIスレッドで動作させる為にRunnable()を使用している)
         final Runnable notifyFinished = new Runnable() {
             public void run() {
-                try {
-                    // 念のためスレッドの完了を待つ
-                    controller_.join();
-                } catch (InterruptedException e) {
-                }
+//                try {
+//                    // 念のためスレッドの完了を待つ
+//                    controller_.join();
+//                } catch (InterruptedException e) {
+//                }
                 if (controller_.result_ == null) {
                     return;
                 }
                 textResult_.append("***Result***" + System.getProperty("line.separator"));
-                textResult_.append(controller_.result_);
+                String target = controller_.result_;
+                int count = 0;
+                for (String yummy : yummies) {
+                     count += (target.length() - target.replaceAll(yummy, "").length()) / yummy.length();
+                }
+                textResult_.append(
+                        target +
+                        System.getProperty("line.separator") +
+                        count +
+                        "yummy" +
+                        System.getProperty("line.separator") +
+                        System.getProperty("line.separator"));
                 buttonStart_.setEnabled(true);
 
             }
@@ -104,12 +120,54 @@ public class MainActivity extends Activity{
         public void run() {
             result_ = "";
             try {
-                result_=execute();
+                final ConstructorEntity construct = new ConstructorEntity();
+                construct.setContext(activity_);
+
+                // TODO apiキーをコミットしないこと
+                // 別途発行されるAPIキーを設定してください(以下の値はダミーです)
+                construct.setApiKey("");
+
+                construct.setSpeechTime(10000);
+                construct.setRecordSize(240);
+                construct.setRecognizeTime(10000);
+
+                // インスタンス生成
+                // (thisは FSRServiceEventListenerをimplementsしている。)
+                if( null == fsr_ ){
+                    fsr_ = new FSRServiceOpen(this, this, construct);
+                }
+
+                // connect
+                fsr_.connectSession(backendType_);
+                String connectStatus = event_CompleteConnect_.wait_();
+                if (connectStatus.equals("shutdown")) {
+                    return;
+                }
+                if( ret_ != Ret.RetOk ){
+                    Exception e = new Exception("filed connectSession.");
+                    throw e;
+                }
+
+                for (int i=0;i<3;i++){
+                    result_ = execute();
+                    handler_.post(notifyFinished);
+                }
+                // 切断
+                fsr_.disconnectSession(backendType_);
+                String completeStatus = event_CompleteDisconnect_.wait_();
+                if (completeStatus.equals("shutdown")) {
+                    return;
+                }
+
+                if (fsr_ != null) {
+                    fsr_.destroy();
+                    fsr_=null;
+                }
+
             } catch (Exception e) {
                 result_ = "(error)";
                 e.printStackTrace();
             }
-            handler_.post(notifyFinished);
         }
 
         /**
@@ -126,35 +184,8 @@ public class MainActivity extends Activity{
         public String execute() throws Exception {
 
             try{
-                final ConstructorEntity construct = new ConstructorEntity();
-                construct.setContext(activity_);
-
-                // TODO apiキーをコミットしないこと
-                // 別途発行されるAPIキーを設定してください(以下の値はダミーです)
-                construct.setApiKey("70473974327a764c314337636a624e5131326a6b332e6d4257367446344d30354d745064572e6452696132");
-
-                construct.setSpeechTime(10000);
-                construct.setRecordSize(240);
-                construct.setRecognizeTime(10000);
-
-                // インスタンス生成
-                // (thisは FSRServiceEventListenerをimplementsしている。)
-                if( null == fsr_ ){
-                    fsr_ = new FSRServiceOpen(this, this, construct);
-                }
-
-                // connect
-                fsr_.connectSession(backendType_);
-                String connectStatus = event_CompleteConnect_.wait_();
-                if (connectStatus.equals("shutdown")) {
-                    return null;
-                }
-                if( ret_ != Ret.RetOk ){
-                    Exception e = new Exception("filed connectSession.");
-                    throw e;
-                }
-
                 // 認識開始
+                event_EndRecognition_.initialize();
 
                 final StartRecognitionEntity startRecognitionEntity = new StartRecognitionEntity();
                 startRecognitionEntity.setAutoStart(true);
@@ -181,17 +212,6 @@ public class MainActivity extends Activity{
                     result = info.getText();
                 }
 
-                // 切断
-                fsr_.disconnectSession(backendType_);
-                String completeStatus = event_CompleteDisconnect_.wait_();
-                if (completeStatus.equals("shutdown")) {
-                    return null;
-                }
-
-                if (fsr_ != null) {
-                    fsr_.destroy();
-                    fsr_=null;
-                }
                 return result;
             } catch (Exception e) {
                 showErrorDialog(e);
