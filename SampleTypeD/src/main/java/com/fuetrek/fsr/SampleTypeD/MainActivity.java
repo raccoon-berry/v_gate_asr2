@@ -81,8 +81,10 @@ public class MainActivity extends Activity{
         SyncObj event_CompleteConnect_ = new SyncObj();
         SyncObj event_CompleteDisconnect_ = new SyncObj();
         SyncObj event_EndRecognition_ = new SyncObj();
+        SyncObj event_StopRecognition_ = new SyncObj();
         Ret ret_;
         String result_;
+        boolean carryOn = true;
 
         // 認識完了時の処理
         // (UIスレッドで動作させる為にRunnable()を使用している)
@@ -125,7 +127,7 @@ public class MainActivity extends Activity{
 
                 // TODO apiキーをコミットしないこと
                 // 別途発行されるAPIキーを設定してください(以下の値はダミーです)
-                construct.setApiKey("");
+                construct.setApiKey("70473974327a764c314337636a624e5131326a6b332e6d4257367446344d30354d745064572e6452696132");
 
                 construct.setSpeechTime(10000);
                 construct.setRecordSize(240);
@@ -137,10 +139,16 @@ public class MainActivity extends Activity{
                     fsr_ = new FSRServiceOpen(this, this, construct);
                 }
 
+                if (!carryOn) {
+                    return;
+                }
                 // connect
                 fsr_.connectSession(backendType_);
                 String connectStatus = event_CompleteConnect_.wait_();
                 if (connectStatus.equals("shutdown")) {
+                    while(carryOn) {
+                        sleep(10);
+                    }
                     return;
                 }
                 if( ret_ != Ret.RetOk ){
@@ -150,12 +158,23 @@ public class MainActivity extends Activity{
 
                 for (int i=0;i<3;i++){
                     result_ = execute();
+                    if (result_ == null) {
+                        return;
+                    }
                     handler_.post(notifyFinished);
                 }
+
+                if (!carryOn) {
+                    return;
+                }
+
                 // 切断
                 fsr_.disconnectSession(backendType_);
                 String completeStatus = event_CompleteDisconnect_.wait_();
                 if (completeStatus.equals("shutdown")) {
+                    while(carryOn) {
+                        sleep(10);
+                    }
                     return;
                 }
 
@@ -192,8 +211,11 @@ public class MainActivity extends Activity{
                 startRecognitionEntity.setAutoStop(false);				// falseにする場合はUIからstopRecognition()実行する仕組みが必要
                 startRecognitionEntity.setVadOffTime((short) 500);
                 startRecognitionEntity.setListenTime(0);
-                startRecognitionEntity.setLevelSensibility(10);
+                startRecognitionEntity.setLevelSensibility(1);
 
+                if (!carryOn) {
+                    return null;
+                }
                 // 認識開始
                 fsr_.startRecognition(backendType_, startRecognitionEntity);
 
@@ -201,9 +223,16 @@ public class MainActivity extends Activity{
                 // (setAutoStop(true)なので発話終了を検知して自動停止する)
                 String endStatus = event_EndRecognition_.wait_();
                 if (endStatus.equals("shutdown")) {
+                    while(carryOn) {
+                        sleep(10);
+                    }
                     return null;
                 }
                 // 認識結果の取得
+                if (!carryOn) {
+                    return null;
+                }
+
                 RecognizeEntity recog = fsr_.getSessionResultStatus(backendType_);
                 String result="(no result)";
                 if( recog.getCount()>0 ){
@@ -239,6 +268,7 @@ public class MainActivity extends Activity{
                     return "cancel";
                 } else if (s.equals(com.fuetrek.fsr.FSRServiceEnum.State.FEATURE)) {
                     fsr_.stopRecognition();
+                    event_StopRecognition_.wait_();
                     // 認識結果の取得
                     RecognizeEntity recog = fsr_.getSessionResultStatus(backendType_);
                     String result="(no result)";
@@ -249,8 +279,7 @@ public class MainActivity extends Activity{
                     }
                     // 切断
                     fsr_.disconnectSession(backendType_);
-                    event_CompleteDisconnect_.wait_();
-                    fsr_.disconnectSession(backendType_);
+//                    event_CompleteDisconnect_.wait_();
                     return result;
                 } else {
                     fsr_.disconnectSession(backendType_);
@@ -296,6 +325,11 @@ public class MainActivity extends Activity{
             case NotifyEndRecognition:
                 // 認識完了
                 event_EndRecognition_.notify_();
+                break;
+
+            case CompleteStop:
+                // 停止完了
+                event_StopRecognition_.notify_();
                 break;
 
             case NotifyLevel:
@@ -346,7 +380,7 @@ public class MainActivity extends Activity{
             e.printStackTrace();
         }
         handler_.post(controller_.notifyFinished);
-
+        controller_.carryOn = false;
     }
 
     /**
