@@ -21,39 +21,27 @@ import android.widget.Toast;
 
 class SyncObj{
     boolean isDone=false;
-    boolean isShutdown=false;
 
     synchronized void initialize() {
         isDone=false;
-        isShutdown=false;
     }
 
-    synchronized String wait_(){
+    synchronized void wait_(){
         try {
             // wait_()より前にnotify_()が呼ばれた場合の対策としてisDoneフラグをチェックしている
-            while(isDone==false && isShutdown==false){
+            while(isDone==false){
                 wait(1000);
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        if (isShutdown) {
-            return "shutdown";
-        }
-        return "done";
     }
 
     synchronized void notify_(){
-        if (isShutdown==false) {
-            isDone = true;
-            notify();
-        }
-    }
-
-    synchronized void shutdown_(){
-        isShutdown=true;
+        isDone = true;
         notify();
     }
+
 }
 
 
@@ -144,39 +132,20 @@ public class MainActivity extends Activity{
                 }
                 // connect
                 fsr_.connectSession(backendType_);
-                String connectStatus = event_CompleteConnect_.wait_();
-                if (connectStatus.equals("shutdown")) {
-                    while(carryOn) {
-                        sleep(10);
-                    }
-                    return;
-                }
+                event_CompleteConnect_.wait_();
                 if( ret_ != Ret.RetOk ){
                     Exception e = new Exception("filed connectSession.");
                     throw e;
                 }
 
-                for (int i=0;i<3;i++){
+                while(carryOn) {
                     result_ = execute();
-                    if (result_ == null) {
-                        return;
-                    }
                     handler_.post(notifyFinished);
-                }
-
-                if (!carryOn) {
-                    return;
                 }
 
                 // 切断
                 fsr_.disconnectSession(backendType_);
-                String completeStatus = event_CompleteDisconnect_.wait_();
-                if (completeStatus.equals("shutdown")) {
-                    while(carryOn) {
-                        sleep(10);
-                    }
-                    return;
-                }
+                event_CompleteDisconnect_.wait_();
 
                 if (fsr_ != null) {
                     fsr_.destroy();
@@ -213,25 +182,12 @@ public class MainActivity extends Activity{
                 startRecognitionEntity.setListenTime(0);
                 startRecognitionEntity.setLevelSensibility(1);
 
-                if (!carryOn) {
-                    return null;
-                }
                 // 認識開始
                 fsr_.startRecognition(backendType_, startRecognitionEntity);
 
                 // 認識完了待ち
                 // (setAutoStop(true)なので発話終了を検知して自動停止する)
-                String endStatus = event_EndRecognition_.wait_();
-                if (endStatus.equals("shutdown")) {
-                    while(carryOn) {
-                        sleep(10);
-                    }
-                    return null;
-                }
-                // 認識結果の取得
-                if (!carryOn) {
-                    return null;
-                }
+                event_EndRecognition_.wait_();
 
                 RecognizeEntity recog = fsr_.getSessionResultStatus(backendType_);
                 String result="(no result)";
@@ -245,55 +201,11 @@ public class MainActivity extends Activity{
             } catch (Exception e) {
                 showErrorDialog(e);
                 throw e;
-//            }finally{
-//                if( fsr_!=null ){
-//                    fsr_.destroy();
-//                    fsr_=null;
-//                }
             }
         }
 
-        public String stopRecognition() throws Exception{
-            if (fsr_ == null) {
-                return "fsr_がnull";
-            }
-            try {
-                event_CompleteConnect_.shutdown_();
-                event_EndRecognition_.shutdown_();
-                event_CompleteDisconnect_.shutdown_();
-                com.fuetrek.fsr.FSRServiceEnum.State s = fsr_.getStatus();
-                if (s.equals(com.fuetrek.fsr.FSRServiceEnum.State.LISTEN)) {
-                    fsr_.cancelRecognition();
-                    fsr_.disconnectSession(backendType_);
-                    return "cancel";
-                } else if (s.equals(com.fuetrek.fsr.FSRServiceEnum.State.FEATURE)) {
-                    fsr_.stopRecognition();
-                    event_StopRecognition_.wait_();
-                    // 認識結果の取得
-                    RecognizeEntity recog = fsr_.getSessionResultStatus(backendType_);
-                    String result="(no result)";
-                    if( recog.getCount()>0 ){
-                        // TODO 認識結果件数を指定出来る模様。100とか1000とかにしとけばいいかな。
-                        ResultInfoEntity info=fsr_.getSessionResult(backendType_, 1);
-                        result = info.getText();
-                    }
-                    // 切断
-                    fsr_.disconnectSession(backendType_);
-//                    event_CompleteDisconnect_.wait_();
-                    return result;
-                } else {
-                    fsr_.disconnectSession(backendType_);
-                    return "disconnect";
-                }
-            } catch (Exception e) {
-                showErrorDialog(e);
-                throw e;
-            } finally {
-                if (fsr_ != null) {
-                    fsr_.destroy();
-                    fsr_ = null;
-                }
-            }
+        public void sendStopSignal() {
+            carryOn = false;
         }
 
         // TODO FSRServiceEventListenerインターフェースにある
@@ -371,16 +283,8 @@ public class MainActivity extends Activity{
         controller_.start();
     }
 
-
     public void onClickEnd(final View view) {
-        try {
-            controller_.result_ = controller_.stopRecognition();
-        } catch (Exception e) {
-            controller_.result_ = "(click end error)";
-            e.printStackTrace();
-        }
-        handler_.post(controller_.notifyFinished);
-        controller_.carryOn = false;
+        controller_.sendStopSignal();
     }
 
     /**
